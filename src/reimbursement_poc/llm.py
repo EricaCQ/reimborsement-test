@@ -1,10 +1,14 @@
 """Explicit, optional OpenAI-compatible explanation adapter."""
 
 import json
+import logging
 import os
 import re
+from time import perf_counter
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+logger = logging.getLogger("reimbursement_poc.llm")
 
 
 class LLMRequestError(RuntimeError):
@@ -33,8 +37,36 @@ def _error_detail(error: HTTPError, api_key: str) -> str:
     return _safe_detail(str(detail), api_key)
 
 
-def explain_decision(status: str, reason_codes: tuple[str, ...]) -> str:
+def explain_decision(
+    status: str,
+    reason_codes: tuple[str, ...],
+    *,
+    case_id: str | None = None,
+    trace_id: str | None = None,
+) -> str:
     """Rewrite generic decision codes; never submit claim documents or identifiers."""
+    started = perf_counter()
+    try:
+        return _request_explanation(status, reason_codes)
+    except LLMRequestError as error:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "llm_explanation_failed",
+                    "case_id": case_id,
+                    "trace_id": trace_id,
+                    "component": "llm_explanation",
+                    "latency_ms": round((perf_counter() - started) * 1000, 3),
+                    "outcome_status": "unavailable",
+                    "error": str(error),
+                },
+                sort_keys=True,
+            )
+        )
+        raise
+
+
+def _request_explanation(status: str, reason_codes: tuple[str, ...]) -> str:
     api_key = os.environ.get("LLM_API_KEY", "").strip()
     if not api_key:
         raise LLMRequestError("LLM_API_KEY is missing or empty.")

@@ -33,6 +33,13 @@ class CoverageFinding:
 
 
 @dataclass(frozen=True)
+class TraceEntry:
+    component: str
+    latency_ms: float
+    outcome_status: str
+
+
+@dataclass(frozen=True)
 class CaseRecord:
     request: ClaimRequest
     status: CaseStatus
@@ -41,3 +48,6 @@ class CaseRecord:
     risk_flags: tuple[str, ...]
     reasons: tuple[str, ...]
     approved_amount: float | None
+    trace_id: str
+    execution_trace: tuple[TraceEntry, ...]
+    total_workflow_latency_ms: float

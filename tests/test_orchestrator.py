@@ -52,6 +52,25 @@ def test_approves_covered_procedure_up_to_plan_limit() -> None:
 
     assert result.status is CaseStatus.APPROVED
     assert result.approved_amount == 750
+    assert result.trace_id
+    assert [entry.component for entry in result.execution_trace] == [
+        "document_review",
+        "coverage_review",
+        "risk_signal_review",
+        "final_decision",
+    ]
+    assert all(entry.latency_ms >= 0 for entry in result.execution_trace)
+    assert result.total_workflow_latency_ms >= 0
+    assert result.execution_trace[-1].outcome_status == "APPROVED"
+
+
+def test_case_statuses_remain_the_four_explicit_final_outcomes() -> None:
+    assert {status.value for status in CaseStatus} == {
+        "APPROVED",
+        "REJECTED",
+        "NEEDS_INFORMATION",
+        "HUMAN_REVIEW",
+    }
 
 
 def test_requests_missing_information_before_deciding_coverage() -> None:

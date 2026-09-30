@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from time import perf_counter
 from typing import TypeVar
+from uuid import uuid4
 
 from reimbursement_poc.agents import (
     CoverageAgent,
@@ -15,6 +16,7 @@ from reimbursement_poc.domain import (
     ClaimRequest,
     CoverageFinding,
     CoverageStatus,
+    TraceEntry,
 )
 from reimbursement_poc.observability import Observability
 
@@ -38,17 +40,49 @@ class CaseOrchestrator:
             raise ValueError(f"Case {request.case_id} has already been submitted")
 
         started = perf_counter()
+        trace_id = uuid4().hex
+        trace: list[TraceEntry] = []
         missing_items = self._measure(
-            "document_review", lambda: self.documents.review(request)
+            "document_review",
+            lambda: self.documents.review(request),
+            request,
+            trace_id,
+            trace,
         )
         coverage = self._measure(
-            "coverage_review", lambda: self.coverage.review(request)
+            "coverage_review",
+            lambda: self.coverage.review(request),
+            request,
+            trace_id,
+            trace,
         )
         risk_flags = self._measure(
-            "risk_signal_review", lambda: self.risk.review(request)
+            "risk_signal_review",
+            lambda: self.risk.review(request),
+            request,
+            trace_id,
+            trace,
         )
+        decision_started = perf_counter()
         status, reasons, approved_amount = self._decide(
             missing_items, coverage, risk_flags
+        )
+        decision_latency_ms = (perf_counter() - decision_started) * 1000
+        trace.append(TraceEntry("final_decision", decision_latency_ms, status.value))
+        self.observability.record(
+            "case_decision",
+            status.value,
+            decision_latency_ms,
+            case_id=request.case_id,
+            trace_id=trace_id,
+        )
+        total_workflow_latency_ms = (perf_counter() - started) * 1000
+        self.observability.record(
+            "workflow_total",
+            status.value,
+            total_workflow_latency_ms,
+            case_id=request.case_id,
+            trace_id=trace_id,
         )
         record = CaseRecord(
             request=request,
@@ -58,11 +92,11 @@ class CaseOrchestrator:
             risk_flags=risk_flags,
             reasons=reasons,
             approved_amount=approved_amount,
+            trace_id=trace_id,
+            execution_trace=tuple(trace),
+            total_workflow_latency_ms=total_workflow_latency_ms,
         )
         self.cases[request.case_id] = record
-        self.observability.record(
-            "case_decision", status.value, (perf_counter() - started) * 1000
-        )
         return record
 
     def customer_update(self, case_id: str) -> str:
@@ -77,10 +111,25 @@ class CaseOrchestrator:
             return "Your request is not covered under the submitted plan."
         return "Your request has been approved under the submitted plan."
 
-    def _measure(self, stage: str, operation: Callable[[], Result]) -> Result:
+    def _measure(
+        self,
+        stage: str,
+        operation: Callable[[], Result],
+        request: ClaimRequest,
+        trace_id: str,
+        trace: list[TraceEntry],
+    ) -> Result:
         started = perf_counter()
         result = operation()
-        self.observability.record(stage, "completed", (perf_counter() - started) * 1000)
+        latency_ms = (perf_counter() - started) * 1000
+        trace.append(TraceEntry(stage, latency_ms, "completed"))
+        self.observability.record(
+            stage,
+            "completed",
+            latency_ms,
+            case_id=request.case_id,
+            trace_id=trace_id,
+        )
         return result
 
     @staticmethod

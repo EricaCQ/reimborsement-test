@@ -2,7 +2,6 @@
 
 import csv
 import io
-import os
 from datetime import date
 from uuid import uuid4
 
@@ -15,9 +14,11 @@ from reimbursement_poc.evaluation import (
     evaluate_synthetic_cases,
 )
 from reimbursement_poc.llm import LLMRequestError, explain_decision
+from reimbursement_poc.observability import configure_logging
 from reimbursement_poc.orchestrator import CaseOrchestrator
 
 load_dotenv(override=False)
+configure_logging()
 
 st.set_page_config(page_title="Claims triage PoC", page_icon="🧾", layout="wide")
 st.title("Reimbursement claims — multi-agent PoC")
@@ -123,28 +124,74 @@ with intake_tab:
         latest_case_id = next(reversed(records))
         latest_record = records[latest_case_id]
         st.markdown(f"**Latest claim:** `{latest_case_id}`")
-        st.write(f"**Decision:** {latest_record.status.value}")
-        st.write(f"**Reason codes:** {', '.join(latest_record.reasons)}")
-        st.write(
-            "**Customer update:** "
-            + st.session_state.case_orchestrator.customer_update(latest_case_id)
-        )
-        if latest_record.approved_amount is not None:
-            st.metric("Eligible amount (synthetic)", latest_record.approved_amount)
-
-        if st.button("Generate LLM explanation (optional)", key="explain_latest"):
-            if not all(os.environ.get(name) for name in ("LLM_API_KEY", "LLM_MODEL")):
-                st.error("Set LLM_API_KEY and LLM_MODEL in .env first.")
+        with st.expander("Document validation"):
+            if latest_record.missing_items:
+                st.warning("Required document information is missing.")
+                st.write("Missing fields:", list(latest_record.missing_items))
             else:
-                with st.spinner("Sending only the status and generic reason codes..."):
-                    try:
-                        explanation = explain_decision(
-                            latest_record.status.value, latest_record.reasons
-                        )
-                    except LLMRequestError as error:
-                        st.error(f"Could not generate explanation: {error}")
-                    else:
-                        st.info(explanation)
+                st.success("Required document fields are present.")
+
+        with st.expander("Coverage / policy result"):
+            st.write(f"**Coverage:** {latest_record.coverage.status.value}")
+            st.write(f"**Policy result:** {latest_record.coverage.reason}")
+            if latest_record.approved_amount is not None:
+                st.metric("Eligible amount (synthetic)", latest_record.approved_amount)
+
+        with st.expander("Risk / integrity signals"):
+            if latest_record.risk_flags:
+                st.warning("Signals require review; they are not fraud findings.")
+                st.write("Signals:", list(latest_record.risk_flags))
+            else:
+                st.success("No configured risk / integrity signals.")
+
+        with st.expander("Final deterministic decision", expanded=True):
+            st.write(f"**Decision:** {latest_record.status.value}")
+            st.write(f"**Reason codes:** {', '.join(latest_record.reasons)}")
+            st.write(
+                "**Customer update:** "
+                + st.session_state.case_orchestrator.customer_update(latest_case_id)
+            )
+            if latest_record.approved_amount is not None:
+                st.metric("Eligible amount (synthetic)", latest_record.approved_amount)
+
+        with st.expander("Execution trace"):
+            st.write(f"**case_id:** `{latest_case_id}`")
+            st.write(f"**trace_id:** `{latest_record.trace_id}`")
+            st.metric(
+                "Total workflow latency (ms)",
+                round(latest_record.total_workflow_latency_ms, 3),
+            )
+            st.dataframe(
+                [
+                    {
+                        "component": entry.component,
+                        "latency_ms": entry.latency_ms,
+                        "outcome/status": entry.outcome_status,
+                    }
+                    for entry in latest_record.execution_trace
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+
+        if st.button(
+            "Generate customer-friendly explanation (LLM)", key="explain_latest"
+        ):
+            with st.spinner("Sending only the status and generic reason codes..."):
+                try:
+                    explanation = explain_decision(
+                        latest_record.status.value,
+                        latest_record.reasons,
+                        case_id=latest_case_id,
+                        trace_id=latest_record.trace_id,
+                    )
+                except LLMRequestError:
+                    st.info(
+                        "The customer-friendly explanation is temporarily "
+                        "unavailable. The reimbursement decision is unaffected."
+                    )
+                else:
+                    st.info(explanation)
         st.caption(
             "The optional LLM only rewrites an explanation from the status and "
             "generic reason codes; it never decides coverage or approval."

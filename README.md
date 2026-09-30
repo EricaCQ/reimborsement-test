@@ -37,7 +37,7 @@ streamlit run streamlit_app.py
 
 Streamlit opens at http://localhost:8501. The `.env` file is local and ignored by
 Git; the provided `.env.example` is a template. The app does not make an LLM
-request unless you explicitly click **Generate LLM explanation (optional)**.
+request unless you explicitly click **Generate customer-friendly explanation (LLM)**.
 The conditional copy command creates `.env` only when absent and will not
 overwrite credentials you have already configured.
 
@@ -69,12 +69,14 @@ never documents, names, member IDs, or the claim payload. No external call is
 made by the deterministic demo or evaluation. Never use real health, financial,
 or personally identifiable information.
 
-If a request fails, the interface displays the provider's HTTP status and a
-sanitized error message (without the API key). For HTTP 400, check that the model
-name is available to the configured provider/account and that the endpoint
-supports the OpenAI Chat Completions API. The adapter deliberately omits optional
-sampling parameters for better compatibility across models. Do not paste secrets
-into issue reports or chat.
+If a request fails, the interface displays a concise notice that the explanation
+is unavailable and the reimbursement decision is unaffected. Technical details
+are retained in local logs with the synthetic case and trace IDs; they are not
+shown as a large provider error in the UI. For HTTP 400, check that the model name
+is available to the configured provider/account and that the endpoint supports
+the OpenAI Chat Completions API. The adapter deliberately omits optional sampling
+parameters for better compatibility across models. Do not paste secrets into
+issue reports or chat.
 
 Use only credentials and providers approved for the machine and organization
 where the PoC runs. Do not transfer personal API credentials to a work device.

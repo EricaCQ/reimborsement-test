@@ -21,20 +21,28 @@ class Observability:
         self._durations_ms: dict[str, list[float]] = defaultdict(list)
         self._logger = logging.getLogger("reimbursement_poc")
 
-    def record(self, stage: str, outcome: str, duration_ms: float = 0.0) -> None:
+    def record(
+        self,
+        stage: str,
+        outcome: str,
+        duration_ms: float = 0.0,
+        *,
+        case_id: str | None = None,
+        trace_id: str | None = None,
+    ) -> None:
         self._events[(stage, outcome)] += 1
         self._durations_ms[stage].append(round(duration_ms, 3))
-        self._logger.info(
-            json.dumps(
-                {
-                    "event": "poc_stage",
-                    "stage": stage,
-                    "outcome": outcome,
-                    "duration_ms": round(duration_ms, 3),
-                },
-                sort_keys=True,
-            )
-        )
+        event = {
+            "event": "poc_stage",
+            "stage": stage,
+            "outcome": outcome,
+            "duration_ms": round(duration_ms, 3),
+        }
+        if case_id is not None:
+            event["case_id"] = case_id
+        if trace_id is not None:
+            event["trace_id"] = trace_id
+        self._logger.info(json.dumps(event, sort_keys=True))
 
     def snapshot(self) -> dict[str, object]:
         return {

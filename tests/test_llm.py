@@ -43,7 +43,7 @@ def test_explanation_uses_openai_compatible_chat_completions(
 
 
 def test_provider_http_error_has_sanitized_actionable_detail(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     configure_llm(monkeypatch)
     body = json.dumps(
@@ -62,10 +62,19 @@ def test_provider_http_error_has_sanitized_actionable_detail(
     monkeypatch.setattr(llm, "urlopen", failed_request)
 
     with pytest.raises(LLMRequestError, match="HTTP 400") as error:
-        llm.explain_decision("APPROVED", ("procedure_covered",))
+        llm.explain_decision(
+            "APPROVED",
+            ("procedure_covered",),
+            case_id="CASE-SYNTHETIC",
+            trace_id="TRACE-SYNTHETIC",
+        )
 
     assert "not available to this account" in str(error.value)
     assert "test-api-key" not in str(error.value)
+    assert "CASE-SYNTHETIC" in caplog.text
+    assert "TRACE-SYNTHETIC" in caplog.text
+    assert "not available to this account" in caplog.text
+    assert "test-api-key" not in caplog.text
 
 
 def test_empty_credentials_fail_with_configuration_guidance(
